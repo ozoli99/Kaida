@@ -23,10 +23,20 @@ func main() {
 	}
 
 	svc := service.AppointmentService{DB: database}
-	server := api.Server{Service: &svc}
 
-	log.Println("Starting server on :8080...")
-	if err := server.StartServer("8080"); err != nil {
-		log.Fatalf("Server failed: %v", err)
+	webSocketServer := api.NewWebSocketServer()
+	api.StartWebSocketServer(webSocketServer, "8081")
+
+	httpServer := api.Server{
+		Service: &svc,
+		WebSocket: webSocketServer,
+	}
+
+	httpServer.AddMiddleware(api.LoggingMiddleware)
+	httpServer.AddMiddleware(api.CORSMiddleware)
+
+	log.Println("Starting HTTP server on :8080...")
+	if err := httpServer.StartServer("8080"); err != nil {
+		log.Fatalf("Failed to start HTTP server: %v", err)
 	}
 }

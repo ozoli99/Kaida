@@ -12,6 +12,7 @@ import (
 
 type Server struct {
 	Service *service.AppointmentService
+	WebSocket *WebSocketServer
 	Middleware []func(http.Handler) http.Handler
 	Authenticator func(r *http.Request) bool
 }
@@ -123,6 +124,10 @@ func (s *Server) createAppointment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.ID = id
+	if s.WebSocket != nil {
+		message, _ := json.Marshal(a)
+		s.WebSocket.Broadcast(message)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(a)
@@ -155,6 +160,10 @@ func (s *Server) updateAppointment(w http.ResponseWriter, r *http.Request, id in
 	if err := s.Service.Update(a); err != nil {
 		http.Error(w, "Failed to update appointment", http.StatusInternalServerError)
 		return
+	}
+	if s.WebSocket != nil {
+		message, _ := json.Marshal(a)
+		s.WebSocket.Broadcast(message)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(a)
