@@ -22,7 +22,7 @@ func (s *Server) StartServer(port string) error {
 func (s *Server) handleAppointments(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 		case http.MethodGet:
-			s.getAllAppointments(w)
+			s.getAllAppointments(w, r)
 		case http.MethodPost:
 			s.createAppointment(w, r)
 		default:
@@ -50,8 +50,18 @@ func (s *Server) handleAppointmentByID(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) getAllAppointments(w http.ResponseWriter) {
-	appointments, err := s.Service.GetAll()
+func (s *Server) getAllAppointments(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	limit, _ := strconv.Atoi(query.Get("limit"))
+	if limit <= 0 {
+		limit = 10
+	}
+	offset, _ := strconv.Atoi(query.Get("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+
+	appointments, err := s.Service.GetAll(limit, offset)
 	if err != nil {
 		http.Error(w, "Failed to fetch appointments", http.StatusInternalServerError)
 		return
@@ -78,13 +88,13 @@ func (s *Server) createAppointment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getAppointmentByID(w http.ResponseWriter, id int) {
-	appointments, err := s.Service.GetAll()
-	if err != nil || id >= len(appointments) || id < 0 {
+	appointments, err := s.Service.GetAll(1, id-1)
+	if err != nil || len(appointments) == 0 {
 		http.Error(w, "Appointment not found", http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(appointments[id])
+	json.NewEncoder(w).Encode(appointments[0])
 }
 
 func (s *Server) updateAppointment(w http.ResponseWriter, r *http.Request, id int) {

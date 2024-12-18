@@ -17,7 +17,7 @@ type SQLiteDB struct {
 func (s *SQLiteDB) Init() error {
 	db, err := sql.Open("sqlite", "file:appointments.db?cache=shared&mode=rwc")
 	if err != nil {
-		return fmt.Errorf("Failed to open SQLite database: %v", err)
+		return fmt.Errorf("failed to open SQLite database: %v", err)
 	}
 
 	createTableStmt := `CREATE TABLE IF NOT EXISTS appointments (
@@ -29,7 +29,7 @@ func (s *SQLiteDB) Init() error {
 	);`
 
 	if _, err = db.Exec(createTableStmt); err != nil {
-		return fmt.Errorf("Failed to create table: %v", err)
+		return fmt.Errorf("failed to create table: %v", err)
 	}
 
 	s.DB = db
@@ -45,8 +45,8 @@ func (s *SQLiteDB) CreateAppointment(a models.Appointment) (int, error) {
 	return int(id), nil
 }
 
-func (s *SQLiteDB) GetAllAppointments() ([]models.Appointment, error) {
-	rows, err := s.DB.Query("SELECT id, customer_name, time, duration, notes FROM appointments")
+func (s *SQLiteDB) GetAllAppointments(limit, offset int) ([]models.Appointment, error) {
+	rows, err := s.DB.Query("SELECT id, customer_name, time, duration, notes FROM appointments LIMIT ? OFFSET ?", limit, offset)
 	if err != nil {
 		return nil, err
 	}

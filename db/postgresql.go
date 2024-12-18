@@ -18,7 +18,7 @@ func (p *PostgresDB) Init() error {
 	connStr := "host=localhost user=postgres password=yourpassword dbname=appointments sslmode=disable"
 	db, err := sql.Open("postgres", connStr)
 	if err != nil  {
-		return fmt.Errorf("Failed to connect to PostgreSQL: %v", err)
+		return fmt.Errorf("failed to connect to PostgreSQL: %v", err)
 	}
 
 	createTableStmt := `
@@ -31,7 +31,7 @@ func (p *PostgresDB) Init() error {
 	);`
 
 	if _, err := db.Exec(createTableStmt); err != nil {
-		return fmt.Errorf("Failed to create table: %v", err)
+		return fmt.Errorf("failed to create table: %v", err)
 	}
 	p.DB = db
 	return nil
@@ -43,8 +43,8 @@ func (p *PostgresDB) CreateAppointment(a models.Appointment) (int, error) {
 	return id, err
 }
 
-func (p *PostgresDB) GetAllAppointments() ([]models.Appointment, error) {
-	rows, err := p.DB.Query("SELECT id, customer_name, time, duration, notes FROM appointments")
+func (p *PostgresDB) GetAllAppointments(limit, offset int) ([]models.Appointment, error) {
+	rows, err := p.DB.Query("SELECT id, customer_name, time, duration, notes FROM appointments LIMIT $1 OFFSET $2", limit, offset)
 	if err != nil {
 		return nil, err
 	}
