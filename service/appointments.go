@@ -1,6 +1,9 @@
 package service
 
 import (
+	"errors"
+	"time"
+
 	"github.com/ozoli99/Kaida/db"
 	"github.com/ozoli99/Kaida/models"
 )
@@ -23,4 +26,15 @@ func (s *AppointmentService) Update(a models.Appointment) error {
 
 func (s *AppointmentService) Delete(id int) error {
 	return s.DB.DeleteAppointment(id)
+}
+
+func (s *AppointmentService) CheckForConflict(a models.Appointment) error {
+	existingAppointments, err := s.DB.GetAppointmentsByCustomerAndTimeRange(a.CustomerName, a.Time, a.Time.Add(time.Duration(a.Duration)*time.Minute))
+	if err != nil {
+		return err
+	}
+	if len(existingAppointments) > 0 {
+		return errors.New("conflict detected: overlapping appointment")
+	}
+	return nil
 }

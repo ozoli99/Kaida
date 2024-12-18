@@ -94,6 +94,27 @@ func (p *PostgresDB) GetAllAppointments(limit, offset int, filters map[string]in
 	return appointments, nil
 }
 
+func (p *PostgresDB) GetAppointmentsByCustomerAndTimeRange(customerName string, start, end time.Time) ([]models.Appointment, error) {
+	query := `SELECT id, customer_name, time, duration, notes FROM appointments 
+		WHERE customer_name = $1 AND time < $2 AND (time + (duration || ' minutes')::interval) > $3`
+
+	rows, err := p.DB.Query(query, customerName, end, start)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var appointments []models.Appointment
+	for rows.Next() {
+		var a models.Appointment
+		if err := rows.Scan(&a.ID, &a.CustomerName, &a.Time, &a.Duration, &a.Notes); err != nil {
+			return nil, err
+		}
+		appointments = append(appointments, a)
+	}
+	return appointments, nil
+}
+
 func (p *PostgresDB) UpdateAppointment(a models.Appointment) error {
 	_, err := p.DB.Exec("UPDATE appointments SET customer_name = $1, time = $2, duration = $3, notes = $4 WHERE id = $5", a.CustomerName, a.Time, a.Duration, a.Notes, a.ID)
 	return err

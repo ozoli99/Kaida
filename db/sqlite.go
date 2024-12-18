@@ -96,6 +96,26 @@ func (s *SQLiteDB) GetAllAppointments(limit, offset int, filters map[string]inte
 	return appointments, nil
 }
 
+func (s *SQLiteDB) GetAppointmentsByCustomerAndTimeRange(customerName string, start, end time.Time) ([]models.Appointment, error) {
+	query := `SELECT id, customer_name, time, duration, notes FROM appointments WHERE customer_name = ? AND time < ? AND datetime(time, '+' || duration || ' minutes') > ?`
+
+	rows, err := s.DB.Query(query, customerName, end, start)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var appointments []models.Appointment
+	for rows.Next() {
+		var a models.Appointment
+		if err := rows.Scan(&a.ID, &a.CustomerName, &a.Time, &a.Duration, &a.Notes); err != nil {
+			return nil, err
+		}
+		appointments = append(appointments, a)
+	}
+	return appointments, nil
+}
+
 func (s *SQLiteDB) UpdateAppointment(a models.Appointment) error {
 	_, err := s.DB.Exec("UPDATE appointments SET customer_name = ?, time = ?, duration = ?, notes = ? WHERE id = ?",
 		a.CustomerName, a.Time.Format(time.RFC3339), a.Duration, a.Notes, a.ID)

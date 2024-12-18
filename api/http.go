@@ -118,6 +118,11 @@ func (s *Server) createAppointment(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if err := s.Service.CheckForConflict(a); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	
 	id, err := s.Service.Create(a)
 	if err != nil {
 		http.Error(w, "Failed to create appointment", http.StatusInternalServerError)
