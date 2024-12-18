@@ -89,6 +89,10 @@ func (s *Server) createAppointment(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid input", http.StatusBadRequest)
 		return
 	}
+	if err := a.Validate(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	id, err := s.Service.Create(a)
 	if err != nil {
 		http.Error(w, "Failed to create appointment", http.StatusInternalServerError)
@@ -117,6 +121,10 @@ func (s *Server) updateAppointment(w http.ResponseWriter, r *http.Request, id in
 	var a models.Appointment
 	if err := json.NewDecoder(r.Body).Decode(&a); err != nil {
 		http.Error(w, "Invalid input", http.StatusBadRequest)
+		return
+	}
+	if err := a.Validate(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	a.ID = id
