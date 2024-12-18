@@ -1,12 +1,10 @@
 package main
 
 import (
-	"fmt"
 	"log"
-	"time"
 
+	"github.com/ozoli99/Kaida/api"
 	"github.com/ozoli99/Kaida/db"
-	"github.com/ozoli99/Kaida/models"
 	"github.com/ozoli99/Kaida/service"
 )
 
@@ -25,16 +23,10 @@ func main() {
 	}
 
 	svc := service.AppointmentService{DB: database}
-	newAppointment := models.Appointment{
-		CustomerName: "John Doe",
-		Time: time.Now(),
-		Duration: 60,
-		Notes: "Massage Therapy",
-	}
+	server := api.Server{Service: &svc}
 
-	id, err := svc.Create(newAppointment)
-	if err != nil {
-		log.Fatalf("Failed to create appointment: %v", err)
+	log.Println("Starting server on :8080...")
+	if err := server.StartServer("8080"); err != nil {
+		log.Fatalf("Server failed: %v", err)
 	}
-	fmt.Printf("Created appointment with ID: %d\n", id)
 }
