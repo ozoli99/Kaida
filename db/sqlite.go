@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ozoli99/Kaida/models"
@@ -45,8 +46,38 @@ func (s *SQLiteDB) CreateAppointment(a models.Appointment) (int, error) {
 	return int(id), nil
 }
 
-func (s *SQLiteDB) GetAllAppointments(limit, offset int) ([]models.Appointment, error) {
-	rows, err := s.DB.Query("SELECT id, customer_name, time, duration, notes FROM appointments LIMIT ? OFFSET ?", limit, offset)
+func (s *SQLiteDB) GetAllAppointments(limit, offset int, filters map[string]interface{}, sort string) ([]models.Appointment, error) {
+	baseQuery := "SELECT id, customer_name, time, duration, notes FROM appointments"
+	var conditions []string
+	var args []interface{}
+
+	if customerName, ok := filters["customer_name"]; ok {
+		conditions = append(conditions, "customer_name LIKE ?")
+		args = append(args, "%"+customerName.(string)+"%")
+	}
+
+	if start, ok := filters["start"]; ok {
+		conditions = append(conditions, "time >= ?")
+		args = append(args, start.(string))
+	}
+
+	if end, ok := filters["end"]; ok {
+		conditions = append(conditions, "time <= ?")
+		args = append(args, end.(string))
+	}
+
+	if len(conditions) > 0 {
+		baseQuery += " WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	if sort != "" {
+		baseQuery += " ORDER BY " + sort
+	}
+
+	baseQuery += " LIMIT ? OFFSET ?"
+	args = append(args, limit, offset)
+
+	rows, err := s.DB.Query(baseQuery, args...)
 	if err != nil {
 		return nil, err
 	}

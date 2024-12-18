@@ -13,8 +13,8 @@ func (s *AppointmentService) Create(a models.Appointment) (int, error) {
 	return s.DB.CreateAppointment(a)
 }
 
-func (s *AppointmentService) GetAll(limit, offset int) ([]models.Appointment, error) {
-	return s.DB.GetAllAppointments(limit, offset)
+func (s *AppointmentService) GetAll(limit, offset int, filters map[string]interface{}, sort string) ([]models.Appointment, error) {
+	return s.DB.GetAllAppointments(limit, offset, filters, sort)
 }
 
 func (s *AppointmentService) Update(a models.Appointment) error {

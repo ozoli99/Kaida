@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ozoli99/Kaida/models"
@@ -43,8 +44,38 @@ func (p *PostgresDB) CreateAppointment(a models.Appointment) (int, error) {
 	return id, err
 }
 
-func (p *PostgresDB) GetAllAppointments(limit, offset int) ([]models.Appointment, error) {
-	rows, err := p.DB.Query("SELECT id, customer_name, time, duration, notes FROM appointments LIMIT $1 OFFSET $2", limit, offset)
+func (p *PostgresDB) GetAllAppointments(limit, offset int, filters map[string]interface{}, sort string) ([]models.Appointment, error) {
+	baseQuery := "SELECT id, customer_name, time, duration, notes FROM appointments"
+	var conditions []string
+	var args []interface{}
+
+	if customerName, ok := filters["customer_name"]; ok {
+		conditions = append(conditions, "customer_name ILIKE $1")
+		args = append(args, "%"+customerName.(string)+"%")
+	}
+
+	if start, ok := filters["start"]; ok {
+		conditions = append(conditions, "time >= $2")
+		args = append(args, start.(string))
+	}
+
+	if end, ok := filters["end"]; ok {
+		conditions = append(conditions, "time <= $3")
+		args = append(args, end.(string))
+	}
+
+	if len(conditions) > 0 {
+		baseQuery += " WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	if sort != "" {
+		baseQuery += " ORDER BY " + sort
+	}
+
+	baseQuery += " LIMIT $4 OFFSET $5"
+	args = append(args, limit, offset)
+
+	rows, err := p.DB.Query(baseQuery, args...)
 	if err != nil {
 		return nil, err
 	}
