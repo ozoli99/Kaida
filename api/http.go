@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -11,11 +12,23 @@ import (
 
 type Server struct {
 	Service *service.AppointmentService
+	Middleware []func(http.Handler) http.Handler
+}
+
+func (s *Server) AddMiddleware(mw func(http.Handler) http.Handler) {
+	s.Middleware = append(s.Middleware, mw)
+}
+
+func (s *Server) applyMiddleware(h http.Handler) http.Handler {
+	for _, mw := range s.Middleware {
+		h = mw(h)
+	}
+	return h
 }
 
 func (s *Server) StartServer(port string) error {
-	http.HandleFunc("/appointments", s.handleAppointments)
-	http.HandleFunc("/appointments/", s.handleAppointmentByID)
+	http.Handle("/appointments", s.applyMiddleware(http.HandlerFunc(s.handleAppointments)))
+	http.Handle("/appointments/", s.applyMiddleware(http.HandlerFunc(s.handleAppointmentByID)))
 	return http.ListenAndServe(":"+port, nil)
 }
 
@@ -142,4 +155,24 @@ func (s *Server) deleteAppointment(w http.ResponseWriter, id int) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func LoggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("%s %s", r.Method, r.URL.Path)
+		next.ServeHTTP(w, r)
+	})
+}
+
+func CORSMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
