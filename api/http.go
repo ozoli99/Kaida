@@ -13,6 +13,7 @@ import (
 type Server struct {
 	Service *service.AppointmentService
 	Middleware []func(http.Handler) http.Handler
+	Authenticator func(r *http.Request) bool
 }
 
 func (s *Server) AddMiddleware(mw func(http.Handler) http.Handler) {
@@ -26,9 +27,19 @@ func (s *Server) applyMiddleware(h http.Handler) http.Handler {
 	return h
 }
 
+func (s *Server) AuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.Authenticator != nil && !s.Authenticator(r) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (s *Server) StartServer(port string) error {
-	http.Handle("/appointments", s.applyMiddleware(http.HandlerFunc(s.handleAppointments)))
-	http.Handle("/appointments/", s.applyMiddleware(http.HandlerFunc(s.handleAppointmentByID)))
+	http.Handle("/appointments", s.applyMiddleware(s.AuthMiddleware(http.HandlerFunc(s.handleAppointments))))
+	http.Handle("/appointments/", s.applyMiddleware(s.AuthMiddleware(http.HandlerFunc(s.handleAppointmentByID))))
 	return http.ListenAndServe(":"+port, nil)
 }
 
