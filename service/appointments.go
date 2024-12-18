@@ -20,6 +20,28 @@ func (service *AppointmentService) GetAll(limit, offset int, filters map[string]
 	return service.Database.GetAllAppointments(limit, offset, filters, sort)
 }
 
+func (service *AppointmentService) GetFutureOccurrences(limit int) ([]models.Appointment, error) {
+	recurringAppointments, err := service.Database.GetRecurringAppointments(limit)
+	if err != nil {
+		return nil, err
+	}
+
+	var futureOccurrences []models.Appointment
+	for _, appointment := range recurringAppointments {
+		occurrences := appointment.CalculateFutureOccurences(limit)
+		for _, occ := range occurrences {
+			futureOccurrences = append(futureOccurrences, models.Appointment{
+				CustomerName: appointment.CustomerName,
+				Time: occ,
+				Duration: appointment.Duration,
+				Notes: appointment.Notes,
+				RecurrenceRule: appointment.RecurrenceRule,
+			})
+		}
+	}
+	return futureOccurrences, nil
+}
+
 func (service *AppointmentService) Update(appointment models.Appointment) error {
 	return service.Database.UpdateAppointment(appointment)
 }

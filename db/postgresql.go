@@ -19,7 +19,7 @@ func (db *PostgresDatabase) InitializeDatabase() error {
 	connectionString := "host=localhost user=postgres password=yourpassword dbname=appointments sslmode=disable"
 	connection, err := sql.Open("postgres", connectionString)
 	if err != nil  {
-		return fmt.Errorf("failed to connect to PostgreSQL: %v", err)
+		return fmt.Errorf("failed to connect to PostgreSQL database: %v", err)
 	}
 
 	tableCreationQuery := `
@@ -28,7 +28,8 @@ func (db *PostgresDatabase) InitializeDatabase() error {
 		customer_name TEXT NOT NULL,
 		time TIMESTAMP NOT NULL,
 		duration INTEGER NOT NULL,
-		notes TEXT
+		notes TEXT,
+		recurrence_rule TEXT
 	);`
 
 	if _, err := connection.Exec(tableCreationQuery); err != nil {
@@ -39,11 +40,9 @@ func (db *PostgresDatabase) InitializeDatabase() error {
 }
 
 func (db *PostgresDatabase) CreateAppointment(appointment models.Appointment) (int, error) {
+	query := "INSERT INTO appointments (customer_name, time, duration, notes, recurrence_rule) VALUES ($1, $2, $3, $4, $5) RETURNING id"
 	var insertedID int
-	err := db.Connection.QueryRow(
-		"INSERT INTO appointments (customer_name, time, duration, notes) VALUES ($1, $2, $3, $4) RETURNING id",
-		appointment.CustomerName, appointment.Time, appointment.Duration, appointment.Notes,
-	).Scan(&insertedID)
+	err := db.Connection.QueryRow(query, appointment.CustomerName, appointment.Time, appointment.Duration, appointment.Notes, appointment.RecurrenceRule).Scan(&insertedID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to insert appointment: %v", err)
 	}
@@ -52,7 +51,7 @@ func (db *PostgresDatabase) CreateAppointment(appointment models.Appointment) (i
 }
 
 func (db *PostgresDatabase) GetAllAppointments(limit, offset int, filters map[string]interface{}, sort string) ([]models.Appointment, error) {
-	query := "SELECT id, customer_name, time, duration, notes FROM appointments"
+	query := "SELECT id, customer_name, time, duration, notes, recurrence_rule FROM appointments"
 	var conditions []string
 	var parameters []interface{}
 
@@ -103,7 +102,7 @@ func (db *PostgresDatabase) GetAllAppointments(limit, offset int, filters map[st
 }
 
 func (db *PostgresDatabase) GetAppointmentsByCustomerAndTimeRange(customerName string, startTime, endTime time.Time) ([]models.Appointment, error) {
-	query := `SELECT id, customer_name, time, duration, notes FROM appointments 
+	query := `SELECT id, customer_name, time, duration, notes, recurrence_rule FROM appointments 
 		WHERE customer_name = $1 AND time < $2 AND (time + (duration || ' minutes')::interval) > $3`
 
 	rows, err := db.Connection.Query(query, customerName, endTime, startTime)
@@ -124,11 +123,28 @@ func (db *PostgresDatabase) GetAppointmentsByCustomerAndTimeRange(customerName s
 	return appointments, nil
 }
 
+func (db *PostgresDatabase) GetRecurringAppointments(limit int) ([]models.Appointment, error) {
+	query := "SELECT id, customer_name, time, duration, notes, recurrence_rule FROM appointments WHERE recurrence_rule IS NOT NULL"
+	rows, err := db.Connection.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var recurringAppointments []models.Appointment
+	for rows.Next() {
+		var appointment models.Appointment
+		if err := rows.Scan(&appointment.ID, &appointment.CustomerName, &appointment.Time, &appointment.Duration, &appointment.Notes, &appointment.RecurrenceRule); err != nil {
+			return nil, err
+		}
+		recurringAppointments = append(recurringAppointments, appointment)
+	}
+	return recurringAppointments, nil
+}
+
 func (db *PostgresDatabase) UpdateAppointment(appointment models.Appointment) error {
-	_, err := db.Connection.Exec(
-		"UPDATE appointments SET customer_name = $1, time = $2, duration = $3, notes = $4 WHERE id = $5",
-		appointment.CustomerName, appointment.Time, appointment.Duration, appointment.Notes, appointment.ID,
-	)
+	query := "UPDATE appointments SET customer_name = $1, time = $2, duration = $3, notes = $4, recurrence_rule = $5 WHERE id = $6"
+	_, err := db.Connection.Exec(query, appointment.CustomerName, appointment.Time, appointment.Duration, appointment.Notes, appointment.RecurrenceRule, appointment.ID)
 	if err != nil {
 		return fmt.Errorf("failed to update appointment: %v", err)
 	}

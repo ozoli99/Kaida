@@ -30,6 +30,7 @@ func (server *Server) applyMiddleware(handler http.Handler) http.Handler {
 func (server *Server) StartServer(port string) error {
 	http.Handle("/appointments", server.applyMiddleware(http.HandlerFunc(server.handleAppointments)))
 	http.Handle("/appointments/", server.applyMiddleware(http.HandlerFunc(server.handleAppointmentByID)))
+	http.Handle("/recurring", server.applyMiddleware(http.HandlerFunc(server.handleRecurringAppointments)))
 	return http.ListenAndServe(":"+port, nil)
 }
 
@@ -59,6 +60,26 @@ func (server *Server) handleAppointmentByID(w http.ResponseWriter, r *http.Reque
 			server.updateAppointment(w, r, appointmentID)
 		case http.MethodDelete:
 			server.deleteAppointment(w, appointmentID)
+		default:
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (server *Server) handleRecurringAppointments(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+		case http.MethodGet:
+			limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+			if limit <= 0 {
+				limit = 10
+			}
+
+			recurring, err := server.AppointmentService.GetFutureOccurrences(limit)
+			if err != nil {
+				http.Error(w, "Failed to fetch recurring appointments", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(recurring)
 		default:
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 	}
