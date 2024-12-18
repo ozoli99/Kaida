@@ -13,23 +13,23 @@ func main() {
 	usePostgres := false
 
 	if usePostgres {
-		database = &db.PostgresDB{}
+		database = &db.PostgresDatabase{}
 	} else {
-		database = &db.SQLiteDB{}
+		database = &db.SQLiteDatabase{}
 	}
 
-	if err := database.Init(); err != nil {
+	if err := database.InitializeDatabase(); err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
 
-	svc := service.AppointmentService{DB: database}
+	svc := service.AppointmentService{Database: database}
 
 	webSocketServer := api.NewWebSocketServer()
 	api.StartWebSocketServer(webSocketServer, "8081")
 
 	httpServer := api.Server{
-		Service: &svc,
-		WebSocket: webSocketServer,
+		AppointmentService: &svc,
+		WebSocketServer: webSocketServer,
 	}
 
 	httpServer.AddMiddleware(api.LoggingMiddleware)

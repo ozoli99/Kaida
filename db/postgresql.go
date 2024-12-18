@@ -11,18 +11,18 @@ import (
 	_ "github.com/lib/pq"
 )
 
-type PostgresDB struct {
-	DB *sql.DB
+type PostgresDatabase struct {
+	Connection *sql.DB
 }
 
-func (p *PostgresDB) Init() error {
-	connStr := "host=localhost user=postgres password=yourpassword dbname=appointments sslmode=disable"
-	db, err := sql.Open("postgres", connStr)
+func (db *PostgresDatabase) InitializeDatabase() error {
+	connectionString := "host=localhost user=postgres password=yourpassword dbname=appointments sslmode=disable"
+	connection, err := sql.Open("postgres", connectionString)
 	if err != nil  {
 		return fmt.Errorf("failed to connect to PostgreSQL: %v", err)
 	}
 
-	createTableStmt := `
+	tableCreationQuery := `
 	CREATE TABLE IF NOT EXISTS appointments (
 		id SERIAL PRIMARY KEY,
 		customer_name TEXT NOT NULL,
@@ -31,96 +31,114 @@ func (p *PostgresDB) Init() error {
 		notes TEXT
 	);`
 
-	if _, err := db.Exec(createTableStmt); err != nil {
+	if _, err := connection.Exec(tableCreationQuery); err != nil {
 		return fmt.Errorf("failed to create table: %v", err)
 	}
-	p.DB = db
+	db.Connection = connection
 	return nil
 }
 
-func (p *PostgresDB) CreateAppointment(a models.Appointment) (int, error) {
-	var id int
-	err := p.DB.QueryRow("INSERT INTO appointments (customer_name, time, duration, notes) VALUES ($1, $2, $3, $4) RETURNING id", a.CustomerName, a.Time, a.Duration, a.Notes).Scan(&id)
-	return id, err
+func (db *PostgresDatabase) CreateAppointment(appointment models.Appointment) (int, error) {
+	var insertedID int
+	err := db.Connection.QueryRow(
+		"INSERT INTO appointments (customer_name, time, duration, notes) VALUES ($1, $2, $3, $4) RETURNING id",
+		appointment.CustomerName, appointment.Time, appointment.Duration, appointment.Notes,
+	).Scan(&insertedID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to insert appointment: %v", err)
+	}
+
+	return insertedID, nil
 }
 
-func (p *PostgresDB) GetAllAppointments(limit, offset int, filters map[string]interface{}, sort string) ([]models.Appointment, error) {
-	baseQuery := "SELECT id, customer_name, time, duration, notes FROM appointments"
+func (db *PostgresDatabase) GetAllAppointments(limit, offset int, filters map[string]interface{}, sort string) ([]models.Appointment, error) {
+	query := "SELECT id, customer_name, time, duration, notes FROM appointments"
 	var conditions []string
-	var args []interface{}
+	var parameters []interface{}
 
-	if customerName, ok := filters["customer_name"]; ok {
+	if customerName, exists := filters["customer_name"]; exists {
 		conditions = append(conditions, "customer_name ILIKE $1")
-		args = append(args, "%"+customerName.(string)+"%")
+		parameters = append(parameters, "%"+customerName.(string)+"%")
 	}
 
-	if start, ok := filters["start"]; ok {
+	if startTime, exists := filters["start_time"]; exists {
 		conditions = append(conditions, "time >= $2")
-		args = append(args, start.(string))
+		parameters = append(parameters, startTime.(string))
 	}
 
-	if end, ok := filters["end"]; ok {
+	if endTime, exists := filters["end_time"]; exists {
 		conditions = append(conditions, "time <= $3")
-		args = append(args, end.(string))
+		parameters = append(parameters, endTime.(string))
 	}
 
 	if len(conditions) > 0 {
-		baseQuery += " WHERE " + strings.Join(conditions, " AND ")
+		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
 
 	if sort != "" {
-		baseQuery += " ORDER BY " + sort
+		query += " ORDER BY " + sort
 	}
 
-	baseQuery += " LIMIT $4 OFFSET $5"
-	args = append(args, limit, offset)
+	query += " LIMIT $4 OFFSET $5"
+	parameters = append(parameters, limit, offset)
 
-	rows, err := p.DB.Query(baseQuery, args...)
+	rows, err := db.Connection.Query(query, parameters...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get appointments: %v", err)
 	}
 	defer rows.Close()
 
 	var appointments []models.Appointment
 	for rows.Next() {
-		var a models.Appointment
-		var t time.Time
-		if err := rows.Scan(&a.ID, &a.CustomerName, &t, &a.Duration, &a.Notes); err != nil {
-			return nil, err
+		var appointment models.Appointment
+		var appointmentTime time.Time
+		if err := rows.Scan(&appointment.ID, &appointment.CustomerName, &appointmentTime, &appointment.Duration, &appointment.Notes); err != nil {
+			return nil, fmt.Errorf("failed to scan appointment row: %v", err)
 		}
-		a.Time = t
-		appointments = append(appointments, a)
+		appointment.Time = appointmentTime
+		appointments = append(appointments, appointment)
 	}
+
 	return appointments, nil
 }
 
-func (p *PostgresDB) GetAppointmentsByCustomerAndTimeRange(customerName string, start, end time.Time) ([]models.Appointment, error) {
+func (db *PostgresDatabase) GetAppointmentsByCustomerAndTimeRange(customerName string, startTime, endTime time.Time) ([]models.Appointment, error) {
 	query := `SELECT id, customer_name, time, duration, notes FROM appointments 
 		WHERE customer_name = $1 AND time < $2 AND (time + (duration || ' minutes')::interval) > $3`
 
-	rows, err := p.DB.Query(query, customerName, end, start)
+	rows, err := db.Connection.Query(query, customerName, endTime, startTime)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get appointments: %v", err)
 	}
 	defer rows.Close()
 
 	var appointments []models.Appointment
 	for rows.Next() {
-		var a models.Appointment
-		if err := rows.Scan(&a.ID, &a.CustomerName, &a.Time, &a.Duration, &a.Notes); err != nil {
-			return nil, err
+		var appointment models.Appointment
+		if err := rows.Scan(&appointment.ID, &appointment.CustomerName, &appointment.Time, &appointment.Duration, &appointment.Notes); err != nil {
+			return nil, fmt.Errorf("failed to scan appointment row: %v", err)
 		}
-		appointments = append(appointments, a)
+		appointments = append(appointments, appointment)
 	}
+
 	return appointments, nil
 }
 
-func (p *PostgresDB) UpdateAppointment(a models.Appointment) error {
-	_, err := p.DB.Exec("UPDATE appointments SET customer_name = $1, time = $2, duration = $3, notes = $4 WHERE id = $5", a.CustomerName, a.Time, a.Duration, a.Notes, a.ID)
-	return err
+func (db *PostgresDatabase) UpdateAppointment(appointment models.Appointment) error {
+	_, err := db.Connection.Exec(
+		"UPDATE appointments SET customer_name = $1, time = $2, duration = $3, notes = $4 WHERE id = $5",
+		appointment.CustomerName, appointment.Time, appointment.Duration, appointment.Notes, appointment.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update appointment: %v", err)
+	}
+	return nil
 }
 
-func (p *PostgresDB) DeleteAppointment(id int) error {
-	_, err := p.DB.Exec("DELETE FROM appointments WHERE id = $1", id)
-	return err
+func (db *PostgresDatabase) DeleteAppointment(appointmentID int) error {
+	_, err := db.Connection.Exec("DELETE FROM appointments WHERE id = $1", appointmentID)
+	if err != nil {
+		return fmt.Errorf("failed to delete appointment: %v", err)
+	}
+	return nil
 }

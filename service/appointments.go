@@ -9,27 +9,27 @@ import (
 )
 
 type AppointmentService struct {
-	DB db.Database
+	Database db.Database
 }
 
-func (s *AppointmentService) Create(a models.Appointment) (int, error) {
-	return s.DB.CreateAppointment(a)
+func (service *AppointmentService) Create(appointment models.Appointment) (int, error) {
+	return service.Database.CreateAppointment(appointment)
 }
 
-func (s *AppointmentService) GetAll(limit, offset int, filters map[string]interface{}, sort string) ([]models.Appointment, error) {
-	return s.DB.GetAllAppointments(limit, offset, filters, sort)
+func (service *AppointmentService) GetAll(limit, offset int, filters map[string]interface{}, sort string) ([]models.Appointment, error) {
+	return service.Database.GetAllAppointments(limit, offset, filters, sort)
 }
 
-func (s *AppointmentService) Update(a models.Appointment) error {
-	return s.DB.UpdateAppointment(a)
+func (service *AppointmentService) Update(appointment models.Appointment) error {
+	return service.Database.UpdateAppointment(appointment)
 }
 
-func (s *AppointmentService) Delete(id int) error {
-	return s.DB.DeleteAppointment(id)
+func (service *AppointmentService) Delete(appointmentID int) error {
+	return service.Database.DeleteAppointment(appointmentID)
 }
 
-func (s *AppointmentService) CheckForConflict(a models.Appointment) error {
-	existingAppointments, err := s.DB.GetAppointmentsByCustomerAndTimeRange(a.CustomerName, a.Time, a.Time.Add(time.Duration(a.Duration)*time.Minute))
+func (service *AppointmentService) CheckForConflict(appointment models.Appointment) error {
+	existingAppointments, err := service.Database.GetAppointmentsByCustomerAndTimeRange(appointment.CustomerName, appointment.Time, appointment.Time.Add(time.Duration(appointment.Duration)*time.Minute))
 	if err != nil {
 		return err
 	}

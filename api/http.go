@@ -11,53 +11,42 @@ import (
 )
 
 type Server struct {
-	Service *service.AppointmentService
-	WebSocket *WebSocketServer
-	Middleware []func(http.Handler) http.Handler
-	Authenticator func(r *http.Request) bool
+	AppointmentService *service.AppointmentService
+	WebSocketServer    *WebSocketServer
+	MiddlewareChain    []func(http.Handler) http.Handler
 }
 
-func (s *Server) AddMiddleware(mw func(http.Handler) http.Handler) {
-	s.Middleware = append(s.Middleware, mw)
+func (server *Server) AddMiddleware(middleware func(http.Handler) http.Handler) {
+	server.MiddlewareChain = append(server.MiddlewareChain, middleware)
 }
 
-func (s *Server) applyMiddleware(h http.Handler) http.Handler {
-	for _, mw := range s.Middleware {
-		h = mw(h)
+func (server *Server) applyMiddleware(handler http.Handler) http.Handler {
+	for _, middleware := range server.MiddlewareChain {
+		handler = middleware(handler)
 	}
-	return h
+	return handler
 }
 
-func (s *Server) AuthMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.Authenticator != nil && !s.Authenticator(r) {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-func (s *Server) StartServer(port string) error {
-	http.Handle("/appointments", s.applyMiddleware(s.AuthMiddleware(http.HandlerFunc(s.handleAppointments))))
-	http.Handle("/appointments/", s.applyMiddleware(s.AuthMiddleware(http.HandlerFunc(s.handleAppointmentByID))))
+func (server *Server) StartServer(port string) error {
+	http.Handle("/appointments", server.applyMiddleware(http.HandlerFunc(server.handleAppointments)))
+	http.Handle("/appointments/", server.applyMiddleware(http.HandlerFunc(server.handleAppointmentByID)))
 	return http.ListenAndServe(":"+port, nil)
 }
 
-func (s *Server) handleAppointments(w http.ResponseWriter, r *http.Request) {
+func (server *Server) handleAppointments(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 		case http.MethodGet:
-			s.getAllAppointments(w, r)
+			server.getAllAppointments(w, r)
 		case http.MethodPost:
-			s.createAppointment(w, r)
+			server.createAppointment(w, r)
 		default:
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 	}
 }
 
-func (s *Server) handleAppointmentByID(w http.ResponseWriter, r *http.Request) {
+func (server *Server) handleAppointmentByID(w http.ResponseWriter, r *http.Request) {
 	idStr := r.URL.Path[len("/appointments/"):]
-	id, err := strconv.Atoi(idStr)
+	appointmentID, err := strconv.Atoi(idStr)
 	if err != nil {
 		http.Error(w, "Invalid ID", http.StatusBadRequest)
 		return
@@ -65,17 +54,17 @@ func (s *Server) handleAppointmentByID(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 		case http.MethodGet:
-			s.getAppointmentByID(w, id)
+			server.getAppointmentByID(w, appointmentID)
 		case http.MethodPut:
-			s.updateAppointment(w, r, id)
+			server.updateAppointment(w, r, appointmentID)
 		case http.MethodDelete:
-			s.deleteAppointment(w, id)
+			server.deleteAppointment(w, appointmentID)
 		default:
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 	}
 }
 
-func (s *Server) getAllAppointments(w http.ResponseWriter, r *http.Request) {
+func (server *Server) getAllAppointments(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	limit, _ := strconv.Atoi(query.Get("limit"))
 	if limit <= 0 {
@@ -90,16 +79,16 @@ func (s *Server) getAllAppointments(w http.ResponseWriter, r *http.Request) {
 	if customerName := query.Get("customer_name"); customerName != "" {
 		filters["customer_name"] = customerName
 	}
-	if start := query.Get("start"); start != "" {
-		filters["start"] = start
+	if startTime := query.Get("start"); startTime != "" {
+		filters["start_time"] = startTime
 	}
-	if end := query.Get("end"); end != "" {
-		filters["end"] = end
+	if endTime := query.Get("end"); endTime != "" {
+		filters["end_time"] = endTime
 	}
 
-	sort := query.Get("sort")
+	sortCriteria := query.Get("sort")
 
-	appointments, err := s.Service.GetAll(limit, offset, filters, sort)
+	appointments, err := server.AppointmentService.GetAll(limit, offset, filters, sortCriteria)
 	if err != nil {
 		http.Error(w, "Failed to fetch appointments", http.StatusInternalServerError)
 		return
@@ -108,74 +97,76 @@ func (s *Server) getAllAppointments(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(appointments)
 }
 
-func (s *Server) createAppointment(w http.ResponseWriter, r *http.Request) {
-	var a models.Appointment
-	if err := json.NewDecoder(r.Body).Decode(&a); err != nil {
+func (server *Server) createAppointment(w http.ResponseWriter, r *http.Request) {
+	var newAppointment models.Appointment
+	if err := json.NewDecoder(r.Body).Decode(&newAppointment); err != nil {
 		http.Error(w, "Invalid input", http.StatusBadRequest)
 		return
 	}
-	if err := a.Validate(); err != nil {
+	if err := newAppointment.Validate(); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if err := s.Service.CheckForConflict(a); err != nil {
+	if err := server.AppointmentService.CheckForConflict(newAppointment); err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
-	
-	id, err := s.Service.Create(a)
+
+	id, err := server.AppointmentService.Create(newAppointment)
 	if err != nil {
 		http.Error(w, "Failed to create appointment", http.StatusInternalServerError)
 		return
 	}
-	a.ID = id
-	if s.WebSocket != nil {
-		message, _ := json.Marshal(a)
-		s.WebSocket.Broadcast(message)
+	newAppointment.ID = id
+	if server.WebSocketServer != nil {
+		message, _ := json.Marshal(newAppointment)
+		server.WebSocketServer.Broadcast(message)
 	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(a)
+	json.NewEncoder(w).Encode(newAppointment)
 }
 
-func (s *Server) getAppointmentByID(w http.ResponseWriter, id int) {
+func (server *Server) getAppointmentByID(w http.ResponseWriter, appointmentID int) {
 	filters := map[string]interface{}{
-		"id": id,
+		"id": appointmentID,
 	}
-	appointments, err := s.Service.GetAll(1, 0, filters, "")
+	appointments, err := server.AppointmentService.GetAll(1, 0, filters, "")
 	if err != nil || len(appointments) == 0 {
 		http.Error(w, "Appointment not found", http.StatusNotFound)
 		return
 	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(appointments[0])
 }
 
-func (s *Server) updateAppointment(w http.ResponseWriter, r *http.Request, id int) {
-	var a models.Appointment
-	if err := json.NewDecoder(r.Body).Decode(&a); err != nil {
+func (server *Server) updateAppointment(w http.ResponseWriter, r *http.Request, appointmentID int) {
+	var updatedAppointment models.Appointment
+	if err := json.NewDecoder(r.Body).Decode(&updatedAppointment); err != nil {
 		http.Error(w, "Invalid input", http.StatusBadRequest)
 		return
 	}
-	if err := a.Validate(); err != nil {
+	if err := updatedAppointment.Validate(); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	a.ID = id
-	if err := s.Service.Update(a); err != nil {
+	updatedAppointment.ID = appointmentID
+	if err := server.AppointmentService.Update(updatedAppointment); err != nil {
 		http.Error(w, "Failed to update appointment", http.StatusInternalServerError)
 		return
 	}
-	if s.WebSocket != nil {
-		message, _ := json.Marshal(a)
-		s.WebSocket.Broadcast(message)
+	if server.WebSocketServer != nil {
+		message, _ := json.Marshal(updatedAppointment)
+		server.WebSocketServer.Broadcast(message)
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(a)
+	json.NewEncoder(w).Encode(updatedAppointment)
 }
 
-func (s *Server) deleteAppointment(w http.ResponseWriter, id int) {
-	if err := s.Service.Delete(id); err != nil {
+func (server *Server) deleteAppointment(w http.ResponseWriter, appointmentID int) {
+	if err := server.AppointmentService.Delete(appointmentID); err != nil {
 		http.Error(w, "Failed to delete appointment", http.StatusInternalServerError)
 		return
 	}

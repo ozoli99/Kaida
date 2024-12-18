@@ -11,17 +11,17 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-type SQLiteDB struct {
-	DB *sql.DB
+type SQLiteDatabase struct {
+	Connection *sql.DB
 }
 
-func (s *SQLiteDB) Init() error {
-	db, err := sql.Open("sqlite", "file:appointments.db?cache=shared&mode=rwc")
+func (db *SQLiteDatabase) InitializeDatabase() error {
+	connection, err := sql.Open("sqlite", "file:appointments.db?cache=shared&mode=rwc")
 	if err != nil {
 		return fmt.Errorf("failed to open SQLite database: %v", err)
 	}
 
-	createTableStmt := `CREATE TABLE IF NOT EXISTS appointments (
+	tableCreationQuery := `CREATE TABLE IF NOT EXISTS appointments (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		customer_name TEXT NOT NULL,
 		time DATETIME NOT NULL,
@@ -29,100 +29,114 @@ func (s *SQLiteDB) Init() error {
 		notes TEXT
 	);`
 
-	if _, err = db.Exec(createTableStmt); err != nil {
+	if _, err = connection.Exec(tableCreationQuery); err != nil {
 		return fmt.Errorf("failed to create table: %v", err)
 	}
 
-	s.DB = db
+	db.Connection = connection
 	return nil
 }
 
-func (s *SQLiteDB) CreateAppointment(a models.Appointment) (int, error) {
-	res, err := s.DB.Exec("INSERT INTO appointments (customer_name, time, duration, notes) VALUES (?, ?, ?, ?)", a.CustomerName, a.Time.Format(time.RFC3339), a.Duration, a.Notes)
+func (db *SQLiteDatabase) CreateAppointment(appointment models.Appointment) (int, error) {
+	result, err := db.Connection.Exec(
+		"INSERT INTO appointments (customer_name, time, duration, notes) VALUES (?, ?, ?, ?)",
+		appointment.CustomerName, appointment.Time.Format(time.RFC3339), appointment.Duration, appointment.Notes,
+	)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("failed to insert appointment: %v", err)
 	}
-	id, _ := res.LastInsertId()
-	return int(id), nil
+
+	insertedID, _ := result.LastInsertId()
+	return int(insertedID), nil
 }
 
-func (s *SQLiteDB) GetAllAppointments(limit, offset int, filters map[string]interface{}, sort string) ([]models.Appointment, error) {
-	baseQuery := "SELECT id, customer_name, time, duration, notes FROM appointments"
+func (db *SQLiteDatabase) GetAllAppointments(limit, offset int, filters map[string]interface{}, sort string) ([]models.Appointment, error) {
+	query := "SELECT id, customer_name, time, duration, notes FROM appointments"
 	var conditions []string
-	var args []interface{}
+	var parameters []interface{}
 
-	if customerName, ok := filters["customer_name"]; ok {
+	if customerName, exists := filters["customer_name"]; exists {
 		conditions = append(conditions, "customer_name LIKE ?")
-		args = append(args, "%"+customerName.(string)+"%")
+		parameters = append(parameters, "%"+customerName.(string)+"%")
 	}
 
-	if start, ok := filters["start"]; ok {
+	if startTime, exists := filters["start_time"]; exists {
 		conditions = append(conditions, "time >= ?")
-		args = append(args, start.(string))
+		parameters = append(parameters, startTime.(string))
 	}
 
-	if end, ok := filters["end"]; ok {
+	if endTime, exists := filters["end_time"]; exists {
 		conditions = append(conditions, "time <= ?")
-		args = append(args, end.(string))
+		parameters = append(parameters, endTime.(string))
 	}
 
 	if len(conditions) > 0 {
-		baseQuery += " WHERE " + strings.Join(conditions, " AND ")
+		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
 
 	if sort != "" {
-		baseQuery += " ORDER BY " + sort
+		query += " ORDER BY " + sort
 	}
 
-	baseQuery += " LIMIT ? OFFSET ?"
-	args = append(args, limit, offset)
+	query += " LIMIT ? OFFSET ?"
+	parameters = append(parameters, limit, offset)
 
-	rows, err := s.DB.Query(baseQuery, args...)
+	rows, err := db.Connection.Query(query, parameters...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get appointments: %v", err)
 	}
 	defer rows.Close()
 
 	var appointments []models.Appointment
 	for rows.Next() {
-		var a models.Appointment
-		var t string
-		if err := rows.Scan(&a.ID, &a.CustomerName, &t, &a.Duration, &a.Notes); err != nil {
-			return nil, err
+		var appointment models.Appointment
+		var appointmentTime string
+		if err := rows.Scan(&appointment.ID, &appointment.CustomerName, &appointmentTime, &appointment.Duration, &appointment.Notes); err != nil {
+			return nil, fmt.Errorf("failed to scan appointment row: %v", err)
 		}
-		a.Time, _ = time.Parse(time.RFC3339, t)
-		appointments = append(appointments, a)
+		appointment.Time, _ = time.Parse(time.RFC3339, appointmentTime)
+		appointments = append(appointments, appointment)
 	}
+
 	return appointments, nil
 }
 
-func (s *SQLiteDB) GetAppointmentsByCustomerAndTimeRange(customerName string, start, end time.Time) ([]models.Appointment, error) {
+func (db *SQLiteDatabase) GetAppointmentsByCustomerAndTimeRange(customerName string, startTime, endTime time.Time) ([]models.Appointment, error) {
 	query := `SELECT id, customer_name, time, duration, notes FROM appointments WHERE customer_name = ? AND time < ? AND datetime(time, '+' || duration || ' minutes') > ?`
 
-	rows, err := s.DB.Query(query, customerName, end, start)
+	rows, err := db.Connection.Query(query, customerName, endTime, startTime)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get appointments: %v", err)
 	}
 	defer rows.Close()
 
 	var appointments []models.Appointment
 	for rows.Next() {
-		var a models.Appointment
-		if err := rows.Scan(&a.ID, &a.CustomerName, &a.Time, &a.Duration, &a.Notes); err != nil {
-			return nil, err
+		var appointment models.Appointment
+		if err := rows.Scan(&appointment.ID, &appointment.CustomerName, &appointment.Time, &appointment.Duration, &appointment.Notes); err != nil {
+			return nil, fmt.Errorf("failed to scan appointment row: %v", err)
 		}
-		appointments = append(appointments, a)
+		appointments = append(appointments, appointment)
 	}
+
 	return appointments, nil
 }
 
-func (s *SQLiteDB) UpdateAppointment(a models.Appointment) error {
-	_, err := s.DB.Exec("UPDATE appointments SET customer_name = ?, time = ?, duration = ?, notes = ? WHERE id = ?",
-		a.CustomerName, a.Time.Format(time.RFC3339), a.Duration, a.Notes, a.ID)
-	return err
+func (db *SQLiteDatabase) UpdateAppointment(appointment models.Appointment) error {
+	_, err := db.Connection.Exec(
+		"UPDATE appointments SET customer_name = ?, time = ?, duration = ?, notes = ? WHERE id = ?",
+		appointment.CustomerName, appointment.Time.Format(time.RFC3339), appointment.Duration, appointment.Notes, appointment.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update appointment: %v", err)
+	}
+	return nil
 }
 
-func (s *SQLiteDB) DeleteAppointment(id int) error {
-	_, err := s.DB.Exec("DELETE FROM appointments WHERE id = ?", id)
-	return err
+func (db *SQLiteDatabase) DeleteAppointment(appointmentID int) error {
+	_, err := db.Connection.Exec("DELETE FROM appointments WHERE id = ?", appointmentID)
+	if err != nil {
+		return fmt.Errorf("failed to delete appointment: %v", err)
+	}
+	return nil
 }

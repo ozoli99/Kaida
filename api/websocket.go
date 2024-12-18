@@ -9,37 +9,37 @@ import (
 )
 
 type WebSocketServer struct {
-	clients map[*websocket.Conn]bool
-	broadcast chan []byte
-	mutex sync.Mutex
-	upgrader websocket.Upgrader
+	connectedClients   map[*websocket.Conn]bool
+	messageChannel     chan []byte
+	clientMutex        sync.Mutex
+	connectionUpgrader websocket.Upgrader
 }
 
 func NewWebSocketServer() *WebSocketServer {
 	return &WebSocketServer{
-		clients: make(map[*websocket.Conn]bool),
-		broadcast: make(chan []byte),
-		upgrader: websocket.Upgrader{
+		connectedClients: make(map[*websocket.Conn]bool),
+		messageChannel: make(chan []byte),
+		connectionUpgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
 	}
 }
 
-func (ws *WebSocketServer) HandleConnections(w http.ResponseWriter, r *http.Request) {
-	conn, err := ws.upgrader.Upgrade(w, r, nil)
+func (wsServer *WebSocketServer) HandleConnections(w http.ResponseWriter, r *http.Request) {
+	conn, err := wsServer.connectionUpgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("WebSocket upgrade failed: %v", err)
 		return
 	}
 
-	ws.mutex.Lock()
-	ws.clients[conn] = true
-	ws.mutex.Unlock()
+	wsServer.clientMutex.Lock()
+	wsServer.connectedClients[conn] = true
+	wsServer.clientMutex.Unlock()
 
 	defer func() {
-		ws.mutex.Lock()
-		delete(ws.clients, conn)
-		ws.mutex.Unlock()
+		wsServer.clientMutex.Lock()
+		delete(wsServer.connectedClients, conn)
+		wsServer.clientMutex.Unlock()
 		conn.Close()
 	}()
 
@@ -52,21 +52,21 @@ func (ws *WebSocketServer) HandleConnections(w http.ResponseWriter, r *http.Requ
 	}
 }
 
-func (ws *WebSocketServer) Broadcast(message []byte) {
-	ws.mutex.Lock()
-	defer ws.mutex.Unlock()
+func (wsServer *WebSocketServer) Broadcast(message []byte) {
+	wsServer.clientMutex.Lock()
+	defer wsServer.clientMutex.Unlock()
 
-	for client := range ws.clients {
+	for client := range wsServer.connectedClients {
 		if err := client.WriteMessage(websocket.TextMessage, message); err != nil {
 			log.Printf("WebSocket write error: %v", err)
 			client.Close()
-			delete(ws.clients, client)
+			delete(wsServer.connectedClients, client)
 		}
 	}
 }
 
-func StartWebSocketServer(server *WebSocketServer, port string) {
-	http.HandleFunc("/ws", server.HandleConnections)
+func StartWebSocketServer(wsServer *WebSocketServer, port string) {
+	http.HandleFunc("/ws", wsServer.HandleConnections)
 	go func() {
 		log.Printf("WebSocket server running on ws://localhost:%s/ws", port)
 		if err := http.ListenAndServe(":"+port, nil); err != nil {
