@@ -30,6 +30,7 @@ func (server *Server) applyMiddleware(handler http.Handler) http.Handler {
 func (server *Server) StartServer(port string) error {
 	http.Handle("/appointments", server.applyMiddleware(http.HandlerFunc(server.handleAppointments)))
 	http.Handle("/appointments/", server.applyMiddleware(http.HandlerFunc(server.handleAppointmentByID)))
+	http.Handle("/appointments/status/", server.applyMiddleware(http.HandlerFunc(server.updateAppointmentStatus)))
 	http.Handle("/recurring", server.applyMiddleware(http.HandlerFunc(server.handleRecurringAppointments)))
 	return http.ListenAndServe(":"+port, nil)
 }
@@ -184,6 +185,30 @@ func (server *Server) updateAppointment(w http.ResponseWriter, r *http.Request, 
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(updatedAppointment)
+}
+
+func (server *Server) updateAppointmentStatus(w http.ResponseWriter, r *http.Request) {
+	idStr := r.URL.Path[len("/appointments/"):]
+	appointmentID, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Invalid appointment ID", http.StatusBadRequest)
+		return
+	}
+
+	var statusUpdate struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&statusUpdate); err != nil {
+		http.Error(w, "Invalid input", http.StatusBadRequest)
+		return
+	}
+
+	if err := server.AppointmentService.UpdateAppointmentStatus(appointmentID, statusUpdate.Status); err != nil {
+		http.Error(w, "Failed to update appointment status", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (server *Server) deleteAppointment(w http.ResponseWriter, appointmentID int) {

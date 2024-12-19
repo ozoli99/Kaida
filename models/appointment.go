@@ -12,6 +12,7 @@ type Appointment struct {
 	Duration       int       `json:"duration"`
 	Notes          string    `json:"notes"`
 	RecurrenceRule string    `json:"recurrence_rules"`
+	Status         string    `json:"status"`
 }
 
 func (appointment *Appointment) Validate() error {

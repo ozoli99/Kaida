@@ -20,6 +20,10 @@ func (service *AppointmentService) GetAll(limit, offset int, filters map[string]
 	return service.Database.GetAllAppointments(limit, offset, filters, sort)
 }
 
+func (service *AppointmentService) GetAppointmentByID(appointmentID int) (models.Appointment, error) {
+	return service.Database.GetAppointmentByID(appointmentID)
+}
+
 func (service *AppointmentService) GetFutureOccurrences(limit int) ([]models.Appointment, error) {
 	recurringAppointments, err := service.Database.GetRecurringAppointments(limit)
 	if err != nil {
@@ -44,6 +48,10 @@ func (service *AppointmentService) GetFutureOccurrences(limit int) ([]models.App
 
 func (service *AppointmentService) Update(appointment models.Appointment) error {
 	return service.Database.UpdateAppointment(appointment)
+}
+
+func (service *AppointmentService) UpdateAppointmentStatus(appointmentID int, status string) error {
+	return service.Database.UpdateAppointmentStatus(appointmentID, status)
 }
 
 func (service *AppointmentService) Delete(appointmentID int) error {
