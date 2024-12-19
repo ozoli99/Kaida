@@ -16,4 +16,5 @@ type Database interface {
 	UpdateAppointment(appointment models.Appointment) error
 	UpdateAppointmentStatus(appointmentID int, status string) error
 	DeleteAppointment(appointmentID int) error
+	SuggestAlternativeTimes(resource string, startTime time.Time, duration int) ([]time.Time, error)
 }

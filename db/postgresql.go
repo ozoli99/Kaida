@@ -49,7 +49,11 @@ func (db *PostgresDatabase) CreateAppointment(appointment models.Appointment) (i
 		return 0, fmt.Errorf("failed to check for resource conflicts: %v", err)
 	}
 	if count > 0 {
-		return 0, fmt.Errorf("resource conflict: the resource is already booked for this time")
+		suggestions, err := db.SuggestAlternativeTimes(appointment.Resource, appointment.Time, appointment.Duration)
+		if err != nil {
+			return 0, fmt.Errorf("resource conflict: failed to suggest alternatives: %v", err)
+		}
+		return 0, fmt.Errorf("resource conflict: the resource is already booked. Suggested times: %v", suggestions)
 	}
 
 	query = "INSERT INTO appointments (customer_name, time, duration, notes, recurrence_rule, status, resource) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id"
@@ -186,4 +190,34 @@ func (db *PostgresDatabase) DeleteAppointment(appointmentID int) error {
 		return fmt.Errorf("failed to delete appointment: %v", err)
 	}
 	return nil
+}
+
+func (db *PostgresDatabase) SuggestAlternativeTimes(resource string, startTime time.Time, duration int) ([]time.Time, error) {
+	query := `SELECT time, duration FROM appointments WHERE resource = $1 AND time >= $2 ORDER BY time ASC`
+	rows, err := db.Connection.Query(query, resource, startTime)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch conflicting appointments: %v", err)
+	}
+	defer rows.Close()
+
+	var suggestions []time.Time
+	endTime := startTime.Add(time.Minute * time.Duration(duration))
+	for rows.Next() {
+		var bookedStartTime time.Time
+		var bookedDuration int
+		if err := rows.Scan(&bookedStartTime, &bookedDuration); err != nil {
+			return nil, err
+		}
+		bookedEndTime := bookedStartTime.Add(time.Minute * time.Duration(bookedDuration))
+
+		if endTime.Before(bookedStartTime) {
+			suggestions = append(suggestions, endTime)
+			break
+		}
+		startTime = bookedEndTime
+		endTime = startTime.Add(time.Minute * time.Duration(duration))
+	}
+
+	suggestions = append(suggestions, endTime)
+	return suggestions, nil
 }

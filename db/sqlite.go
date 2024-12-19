@@ -48,7 +48,11 @@ func (db *SQLiteDatabase) CreateAppointment(appointment models.Appointment) (int
 		return 0, fmt.Errorf("failed to check for resource conflicts: %v", err)
 	}
 	if count > 0 {
-		return 0, fmt.Errorf("resource conflict: the resource is already booked for this time")
+		suggestions, err := db.SuggestAlternativeTimes(appointment.Resource, appointment.Time, appointment.Duration)
+		if err != nil {
+			return 0, fmt.Errorf("resource conflict: failed to suggest alternatives: %v", err)
+		}
+		return 0, fmt.Errorf("resource conflict: the resource is already booked. Suggested times: %v", suggestions)
 	}
 	
 	query = "INSERT INTO appointments (customer_name, time, duration, notes, recurrence_rule, status, resource) VALUES (?, ?, ?, ?, ?, ?, ?)"
@@ -186,4 +190,34 @@ func (db *SQLiteDatabase) DeleteAppointment(appointmentID int) error {
 		return fmt.Errorf("failed to delete appointment: %v", err)
 	}
 	return nil
+}
+
+func (db *SQLiteDatabase) SuggestAlternativeTimes(resource string, startTime time.Time, duration int) ([]time.Time, error) {
+	query := `SELECT time, duration FROM appointments WHERE resource = ? AND time >= ? ORDER BY time ASC`
+	rows, err := db.Connection.Query(query, resource, startTime.Format(time.RFC3339))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get conflicting appointments: %v", err)
+	}
+	defer rows.Close()
+
+	var suggestions []time.Time
+	endTime := startTime.Add(time.Minute * time.Duration(duration))
+	for rows.Next() {
+		var bookedStartTime time.Time
+		var bookedDuration int
+		if err := rows.Scan(&bookedStartTime, &bookedDuration); err != nil {
+			return nil, err
+		}
+		bookedEndTime := bookedStartTime.Add(time.Minute * time.Duration(bookedDuration))
+
+		if endTime.Before(bookedStartTime) {
+			suggestions = append(suggestions, endTime)
+			break
+		}
+		startTime = bookedEndTime
+		endTime = startTime.Add(time.Minute * time.Duration(duration))
+	}
+
+	suggestions = append(suggestions, endTime)
+	return suggestions, nil
 }
