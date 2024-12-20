@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -122,15 +123,18 @@ func (server *Server) getAllAppointments(w http.ResponseWriter, r *http.Request)
 func (server *Server) createAppointment(w http.ResponseWriter, r *http.Request) {
 	var newAppointment models.Appointment
 	if err := json.NewDecoder(r.Body).Decode(&newAppointment); err != nil {
-		http.Error(w, "Invalid input", http.StatusBadRequest)
+		log.Printf("Failed to decode input: %v", err)
+		http.Error(w, fmt.Sprintf(`{"error": "%s"}`, err.Error()), http.StatusBadRequest)
 		return
 	}
 	if err := newAppointment.Validate(); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		log.Printf("Validation error: %v", err)
+		http.Error(w, fmt.Sprintf(`{"error": "%s"}`, err.Error()), http.StatusBadRequest)
 		return
 	}
 	if err := server.AppointmentService.CheckForConflict(newAppointment); err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
+		log.Printf("Conflict error: %v", err)
+		http.Error(w, fmt.Sprintf(`{"error": "%s"}`, err.Error()), http.StatusConflict)
 		return
 	}
 

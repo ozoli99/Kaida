@@ -22,15 +22,15 @@ func (db *SQLiteDatabase) InitializeDatabase() error {
 	}
 
 	tableCreationQuery := `CREATE TABLE IF NOT EXISTS appointments (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		customer_name TEXT NOT NULL,
-		time DATETIME NOT NULL,
-		duration INTEGER NOT NULL,
-		notes TEXT,
-		recurrence_rule TEXT,
-		status TEXT DEFAULT 'Scheduled' CHECK(status IN ('Scheduled', 'Completed', 'Cancelled')),
-		resource TEXT
-	);`
+							id INTEGER PRIMARY KEY AUTOINCREMENT,
+							customer_name TEXT NOT NULL,
+							time DATETIME NOT NULL,
+							duration INTEGER NOT NULL,
+							notes TEXT,
+							recurrence_rule TEXT,
+							status TEXT DEFAULT 'Scheduled' CHECK(status IN ('Scheduled', 'Completed', 'Cancelled')),
+							resource TEXT
+						  );`
 
 	if _, err = connection.Exec(tableCreationQuery); err != nil {
 		return fmt.Errorf("failed to create table: %v", err)
@@ -41,9 +41,12 @@ func (db *SQLiteDatabase) InitializeDatabase() error {
 }
 
 func (db *SQLiteDatabase) CreateAppointment(appointment models.Appointment) (int, error) {
-	query := `SELECT COUNT(*) FROM appointments WHERE resource = ? AND time < ? AND datetime(time, '+' || duration || ' minutes') > ?`
+	query := `SELECT COUNT(*) FROM appointments
+		      	WHERE resource = ?
+				AND time < datetime(?, '+' || duration || ' minutes')
+				AND datetime(time, '+' || duration || ' minutes') > ?`
 	var count int
-	err := db.Connection.QueryRow(query, appointment.Resource, appointment.Time.Format(time.RFC3339), appointment.Time.Add(time.Minute*time.Duration(appointment.Duration)).Format(time.RFC3339)).Scan(&count)
+	err := db.Connection.QueryRow(query, appointment.Resource, appointment.Time.Add(time.Minute*time.Duration(appointment.Duration)).Format(time.RFC3339), appointment.Time.Format(time.RFC3339)).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("failed to check for resource conflicts: %v", err)
 	}
