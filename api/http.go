@@ -127,6 +127,17 @@ func (server *Server) createAppointment(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, fmt.Sprintf(`{"error": "%s"}`, err.Error()), http.StatusBadRequest)
 		return
 	}
+
+	if newAppointment.RecurrenceRule == "" {
+		newAppointment.RecurrenceRule = "None"
+	}
+	if newAppointment.Status == "" {
+		newAppointment.Status = "Scheduled"
+	}
+	if newAppointment.Resource == "" {
+		newAppointment.Resource = ""
+	}
+	
 	if err := newAppointment.Validate(); err != nil {
 		log.Printf("Validation error: %v", err)
 		http.Error(w, fmt.Sprintf(`{"error": "%s"}`, err.Error()), http.StatusBadRequest)
