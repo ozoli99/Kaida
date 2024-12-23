@@ -22,21 +22,37 @@ func (db *PostgresDatabase) InitializeDatabase() error {
 		return fmt.Errorf("failed to connect to PostgreSQL database: %v", err)
 	}
 
-	tableCreationQuery := `
-	CREATE TABLE IF NOT EXISTS appointments (
-		id SERIAL PRIMARY KEY,
-		customer_name TEXT NOT NULL,
-		time TIMESTAMP NOT NULL,
-		duration INTEGER NOT NULL,
-		notes TEXT,
-		recurrence_rule TEXT,
-		status TEXT DEFAULT 'Scheduled' CHECK(status IN ('Scheduled', 'Completed', 'Cancelled')),
-		resource TEXT
-	);`
+	_, err = connection.Exec(`
+        CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            username VARCHAR(50) NOT NULL,
+            email VARCHAR(100) NOT NULL UNIQUE,
+            password TEXT NOT NULL,
+            role VARCHAR(50) NOT NULL
+        );
+    `)
+    if err != nil {
+        return fmt.Errorf("failed to create users table: %v", err)
+    }
 
-	if _, err := connection.Exec(tableCreationQuery); err != nil {
-		return fmt.Errorf("failed to create table: %v", err)
-	}
+	_, err = connection.Exec(`
+        CREATE TABLE IF NOT EXISTS appointments (
+            id SERIAL PRIMARY KEY,
+            customer_name VARCHAR(100) NOT NULL,
+            time TIMESTAMP NOT NULL,
+            duration INT NOT NULL,
+            notes TEXT,
+            recurrence_rule TEXT,
+            status VARCHAR(20) DEFAULT 'Scheduled' 
+                CHECK (status IN ('Scheduled', 'Completed', 'Cancelled')),
+            resource VARCHAR(100),
+            user_id INT REFERENCES users(id)
+        );
+    `)
+    if err != nil {
+        return fmt.Errorf("failed to create appointments table: %v", err)
+    }
+
 	db.Connection = connection
 	return nil
 }
@@ -56,9 +72,9 @@ func (db *PostgresDatabase) CreateAppointment(appointment models.Appointment) (i
 		return 0, fmt.Errorf("resource conflict: the resource is already booked. Suggested times: %v", suggestions)
 	}
 
-	query = "INSERT INTO appointments (customer_name, time, duration, notes, recurrence_rule, status, resource) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id"
+	query = "INSERT INTO appointments (customer_name, time, duration, notes, recurrence_rule, status, resource, user_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id"
 	var insertedID int
-	err = db.Connection.QueryRow(query, appointment.CustomerName, appointment.Time, appointment.Duration, appointment.Notes, appointment.RecurrenceRule, appointment.Status, appointment.Resource).Scan(&insertedID)
+	err = db.Connection.QueryRow(query, appointment.CustomerName, appointment.Time, appointment.Duration, appointment.Notes, appointment.RecurrenceRule, appointment.Status, appointment.Resource, appointment.UserID).Scan(&insertedID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to insert appointment: %v", err)
 	}
@@ -67,7 +83,7 @@ func (db *PostgresDatabase) CreateAppointment(appointment models.Appointment) (i
 }
 
 func (db *PostgresDatabase) GetAllAppointments(limit, offset int, filters map[string]interface{}, sort string) ([]models.Appointment, error) {
-	query := "SELECT id, customer_name, time, duration, notes, recurrence_rule, status, resource FROM appointments"
+	query := "SELECT id, customer_name, time, duration, notes, recurrence_rule, status, resource, user_id FROM appointments"
 	var conditions []string
 	var parameters []interface{}
 
@@ -107,7 +123,7 @@ func (db *PostgresDatabase) GetAllAppointments(limit, offset int, filters map[st
 	for rows.Next() {
 		var appointment models.Appointment
 		var appointmentTime time.Time
-		if err := rows.Scan(&appointment.ID, &appointment.CustomerName, &appointmentTime, &appointment.Duration, &appointment.Notes, &appointment.RecurrenceRule, &appointment.Status, &appointment.Resource); err != nil {
+		if err := rows.Scan(&appointment.ID, &appointment.CustomerName, &appointmentTime, &appointment.Duration, &appointment.Notes, &appointment.RecurrenceRule, &appointment.Status, &appointment.Resource, &appointment.UserID); err != nil {
 			return nil, fmt.Errorf("failed to scan appointment row: %v", err)
 		}
 		appointment.Time = appointmentTime
@@ -126,6 +142,52 @@ func (db *PostgresDatabase) GetAppointmentByID(appointmentID int) (models.Appoin
 		return appointment, err
 	}
 	return appointment, nil
+}
+
+func (db *PostgresDatabase) GetAppointmentsByUserID(userID int) ([]models.Appointment, error) {
+    query := `
+        SELECT 
+            id, 
+            customer_name, 
+            time, 
+            duration, 
+            notes, 
+            recurrence_rule, 
+            status, 
+            resource,
+            user_id
+        FROM appointments
+        WHERE user_id = $1
+        ORDER BY time ASC
+    `
+
+    rows, err := db.Connection.Query(query, userID)
+    if err != nil {
+        return nil, fmt.Errorf("failed to get appointments for user %d: %v", userID, err)
+    }
+    defer rows.Close()
+
+    var appointments []models.Appointment
+    for rows.Next() {
+        var ap models.Appointment
+        var apTime time.Time
+        if err := rows.Scan(
+            &ap.ID,
+            &ap.CustomerName,
+            &apTime,
+            &ap.Duration,
+            &ap.Notes,
+            &ap.RecurrenceRule,
+            &ap.Status,
+            &ap.Resource,
+            &ap.UserID,
+        ); err != nil {
+            return nil, err
+        }
+        ap.Time = apTime
+        appointments = append(appointments, ap)
+    }
+    return appointments, nil
 }
 
 func (db *PostgresDatabase) GetAppointmentsByCustomerAndTimeRange(customerName string, startTime, endTime time.Time) ([]models.Appointment, error) {
@@ -170,8 +232,8 @@ func (db *PostgresDatabase) GetRecurringAppointments(limit int) ([]models.Appoin
 }
 
 func (db *PostgresDatabase) UpdateAppointment(appointment models.Appointment) error {
-	query := "UPDATE appointments SET customer_name = $1, time = $2, duration = $3, notes = $4, recurrence_rule = $5, status = $6, resource = $7 WHERE id = $8"
-	_, err := db.Connection.Exec(query, appointment.CustomerName, appointment.Time, appointment.Duration, appointment.Notes, appointment.RecurrenceRule, appointment.Status, appointment.Resource, appointment.ID)
+	query := "UPDATE appointments SET customer_name = $1, time = $2, duration = $3, notes = $4, recurrence_rule = $5, status = $6, resource = $7, user_id = $8 WHERE id = $8"
+	_, err := db.Connection.Exec(query, appointment.CustomerName, appointment.Time, appointment.Duration, appointment.Notes, appointment.RecurrenceRule, appointment.Status, appointment.Resource, appointment.UserID, appointment.ID)
 	if err != nil {
 		return fmt.Errorf("failed to update appointment: %v", err)
 	}
@@ -220,4 +282,121 @@ func (db *PostgresDatabase) SuggestAlternativeTimes(resource string, startTime t
 
 	suggestions = append(suggestions, endTime)
 	return suggestions, nil
+}
+
+func (db *PostgresDatabase) CreateUser(user *models.User) error {
+    query := `
+    INSERT INTO users (username, email, password, role)
+    VALUES ($1, $2, $3, $4)
+    RETURNING id;
+    `
+
+    var newID int
+    err := db.Connection.QueryRow(query, user.Username, user.Email, user.Password, user.Role).Scan(&newID)
+    if err != nil {
+        return fmt.Errorf("failed to insert user: %w", err)
+    }
+
+    user.ID = newID
+    return nil
+}
+
+func (db *PostgresDatabase) GetUserByEmail(email string) (*models.User, error) {
+    query := `SELECT id, username, email, password, role FROM users WHERE email = $1 LIMIT 1;`
+
+    user := models.User{}
+    err := db.Connection.QueryRow(query, email).Scan(
+        &user.ID,
+        &user.Username,
+        &user.Email,
+        &user.Password,
+        &user.Role,
+    )
+    if err != nil {
+        return nil, fmt.Errorf("failed to get user by email: %w", err)
+    }
+
+    return &user, nil
+}
+
+func (db *PostgresDatabase) GetUserByID(userID int) (*models.User, error) {
+    query := `SELECT id, username, email, password, role FROM users WHERE id = $1;`
+
+    user := models.User{}
+    err := db.Connection.QueryRow(query, userID).Scan(
+        &user.ID,
+        &user.Username,
+        &user.Email,
+        &user.Password,
+        &user.Role,
+    )
+    if err != nil {
+        return nil, fmt.Errorf("failed to get user by ID: %w", err)
+    }
+
+    return &user, nil
+}
+
+func (db *PostgresDatabase) UpdateUser(user *models.User) error {
+	query := `UPDATE users
+		SET
+			username = $1,
+			email = $2,
+			password = $3,
+			role = $4
+		WHERE id = $5
+	`
+	_, err := db.Connection.Exec(query, user.Username, user.Email, user.Password, user.Role, user.ID)
+	if err != nil {
+		return fmt.Errorf("failed to update user with ID %d: %v", user.ID, err)
+	}
+	return nil
+}
+
+func (db *PostgresDatabase) DeleteUser(userID int) error {
+	_, err := db.Connection.Exec(`DELETE FROM users WHERE id = $1`, userID)
+	if err != nil {
+		return fmt.Errorf("failed to delete user with ID %d: %v", userID, err)
+	}
+	return nil
+}
+
+func (db *PostgresDatabase) GetAllUsers(limit, offset int) ([]models.User, error) {
+	query := `
+		SELECT id, username, email, password, role
+		FROM users
+		ORDER BY id
+		LIMIT $1
+		OFFSET $2
+	`
+
+	rows, err := db.Connection.Query(query, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list users: %v", err)
+	}
+	defer rows.Close()
+
+	var users []models.User
+	for rows.Next() {
+		var user models.User
+		if err := rows.Scan(&user.ID, &user.Username, &user.Email, &user.Password, &user.Role); err != nil {
+			return nil, err
+		}
+		users = append(users, user)
+	}
+
+	return users, nil
+}
+
+func (db *PostgresDatabase) UpdatePassword(userID int, hashedPassword string) error {
+	query := `
+		UPDATE users
+		SET password = $1
+		WHERE id = $2
+	`
+	_, err := db.Connection.Exec(query, hashedPassword, userID)
+	if err != nil {
+		return fmt.Errorf("failed to update password for user ID %d: %v", userID, err)
+	}
+	return nil
 }

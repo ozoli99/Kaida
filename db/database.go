@@ -8,6 +8,7 @@ import (
 
 type Database interface {
 	InitializeDatabase() error
+
 	CreateAppointment(appointment models.Appointment) (int, error)
 	GetAllAppointments(limit, offset int, filters map[string]interface{}, sort string) ([]models.Appointment, error)
 	GetAppointmentByID(appointmentID int) (models.Appointment, error)
@@ -17,4 +18,12 @@ type Database interface {
 	UpdateAppointmentStatus(appointmentID int, status string) error
 	DeleteAppointment(appointmentID int) error
 	SuggestAlternativeTimes(resource string, startTime time.Time, duration int) ([]time.Time, error)
+
+	CreateUser(user *models.User) error
+	GetUserByEmail(email string) (*models.User, error)
+	GetUserByID(userID int) (*models.User, error)
+	UpdateUser(user *models.User) error
+	DeleteUser(userID int) error
+	GetAllUsers(limit, offset int) ([]models.User, error)
+	UpdatePassword(userID int, hashedPassword string) error
 }
