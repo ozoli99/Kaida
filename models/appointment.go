@@ -15,7 +15,8 @@ type Appointment struct {
 	Status         string    `json:"status"`
 	Resource       string    `json:"resource"`
 
-	UserID         int       `json:"user_id"`
+	CustomerID     int       `json:"customer_id"`
+	ProviderID     int       `json:"provider_id"`
 }
 
 func (appointment *Appointment) Validate() error {

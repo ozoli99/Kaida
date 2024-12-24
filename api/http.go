@@ -8,8 +8,9 @@ import (
 )
 
 type Server struct {
-	AppointmentService *service.AppointmentService
-	UserService        *service.UserService
+	AppointmentService service.AppointmentService
+	UserService        service.UserService
+	
 	WebSocketServer    *WebSocketServer
 	MiddlewareChain    []func(http.Handler) http.Handler
 }
@@ -33,6 +34,8 @@ func (server *Server) StartServer(port string) error {
 	
 	http.HandleFunc("/users/register", server.handleUserRegister)
     http.HandleFunc("/users/login", server.handleUserLogin)
+	
+	log.Printf("Starting server on :%s", port)
 	return http.ListenAndServe(":"+port, nil)
 }
 

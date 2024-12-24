@@ -10,11 +10,13 @@ import (
 	"github.com/ozoli99/Kaida/models"
 )
 
-type UserService struct {
+type DefaultUserService struct {
 	Database db.Database
 }
 
-func (userService *UserService) RegisterUser(username, email, password, role string) (*models.User, error) {
+var _ UserService = (*DefaultUserService)(nil)
+
+func (userService *DefaultUserService) RegisterUser(username, email, password, role string) (*models.User, error) {
 	if strings.TrimSpace(username) == "" || strings.TrimSpace(email) == "" || strings.TrimSpace(password) == "" {
 		return nil, errors.New("username, email, and password are required")
 	}
@@ -39,7 +41,7 @@ func (userService *UserService) RegisterUser(username, email, password, role str
 	return user, nil
 }
 
-func (userService *UserService) AuthenticateUser(email, password string) (*models.User, error) {
+func (userService *DefaultUserService) AuthenticateUser(email, password string) (*models.User, error) {
 	user, err := userService.Database.GetUserByEmail(email)
 	if err != nil {
 		return nil, errors.New("invalid credentials")

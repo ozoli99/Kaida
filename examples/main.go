@@ -22,7 +22,7 @@ func main() {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
 
-	svc := service.AppointmentService{Database: database}
+	svc := service.DefaultAppointmentService{Database: database}
 
 	webSocketServer := api.NewWebSocketServer()
 	api.StartWebSocketServer(webSocketServer, "8081")

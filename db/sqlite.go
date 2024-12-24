@@ -43,7 +43,8 @@ func (db *SQLiteDatabase) InitializeDatabase() error {
 		recurrence_rule TEXT,
 		status TEXT DEFAULT 'Scheduled' CHECK(status IN ('Scheduled', 'Completed', 'Cancelled')),
 		resource TEXT,
-		user_id INTEGER REFERENCES users(id)
+		customer_id INTEGER REFERENCES users(id),
+		provider_id INTEGER REFERENCES users(id)
 	  );`
 
 	if _, err = connection.Exec(appointmentsTableQuery); err != nil {
@@ -72,8 +73,8 @@ func (db *SQLiteDatabase) CreateAppointment(appointment models.Appointment) (int
 		return 0, fmt.Errorf("resource conflict: the resource is already booked. Suggested times: %v", suggestions)
 	}
 	
-	query = "INSERT INTO appointments (customer_name, time, duration, notes, recurrence_rule, status, resource, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
-	result, err := db.Connection.Exec(query, appointment.CustomerName, appointment.Time.Format(time.RFC3339), appointment.Duration, appointment.Notes, appointment.RecurrenceRule, appointment.Status, appointment.Resource, appointment.UserID)
+	query = "INSERT INTO appointments (customer_name, time, duration, notes, recurrence_rule, status, resource, customer_id, provider_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+	result, err := db.Connection.Exec(query, appointment.CustomerName, appointment.Time.Format(time.RFC3339), appointment.Duration, appointment.Notes, appointment.RecurrenceRule, appointment.Status, appointment.Resource, appointment.CustomerID, appointment.ProviderID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to insert appointment: %v", err)
 	}
@@ -83,7 +84,7 @@ func (db *SQLiteDatabase) CreateAppointment(appointment models.Appointment) (int
 }
 
 func (db *SQLiteDatabase) GetAllAppointments(limit, offset int, filters map[string]interface{}, sort string) ([]models.Appointment, error) {
-	query := "SELECT id, customer_name, time, duration, notes, recurrence_rule, status, resource, user_id FROM appointments"
+	query := "SELECT id, customer_name, time, duration, notes, recurrence_rule, status, resource, customer_id, provider_id FROM appointments"
 	var conditions []string
 	var parameters []interface{}
 
@@ -123,7 +124,7 @@ func (db *SQLiteDatabase) GetAllAppointments(limit, offset int, filters map[stri
 	for rows.Next() {
 		var appointment models.Appointment
 		var appointmentTime string
-		if err := rows.Scan(&appointment.ID, &appointment.CustomerName, &appointmentTime, &appointment.Duration, &appointment.Notes, &appointment.RecurrenceRule, &appointment.Status, &appointment.Resource, &appointment.UserID); err != nil {
+		if err := rows.Scan(&appointment.ID, &appointment.CustomerName, &appointmentTime, &appointment.Duration, &appointment.Notes, &appointment.RecurrenceRule, &appointment.Status, &appointment.Resource, &appointment.CustomerID, &appointment.ProviderID); err != nil {
 			return nil, fmt.Errorf("failed to scan appointment row: %v", err)
 		}
 		appointment.Time, _ = time.Parse(time.RFC3339, appointmentTime)
@@ -134,21 +135,21 @@ func (db *SQLiteDatabase) GetAllAppointments(limit, offset int, filters map[stri
 }
 
 func (db *SQLiteDatabase) GetAppointmentByID(appointmentID int) (models.Appointment, error) {
-	query := "SELECT id, customer_name, time, duration, notes, recurrence_rule, status, resource FROM appointments WHERE id = ?"
+	query := "SELECT id, customer_name, time, duration, notes, recurrence_rule, status, resource, customer_id, provider_id FROM appointments WHERE id = ?"
 	row := db.Connection.QueryRow(query, appointmentID)
 
 	var appointment models.Appointment
-	if err := row.Scan(&appointment.ID, &appointment.CustomerName, &appointment.Time, &appointment.Duration, &appointment.Notes, &appointment.RecurrenceRule, &appointment.Status, &appointment.Resource); err != nil {
+	if err := row.Scan(&appointment.ID, &appointment.CustomerName, &appointment.Time, &appointment.Duration, &appointment.Notes, &appointment.RecurrenceRule, &appointment.Status, &appointment.Resource, &appointment.CustomerID, &appointment.ProviderID); err != nil {
 		return appointment, err
 	}
 	return appointment, nil
 }
 
-func (db *SQLiteDatabase) GetAppointmentsByUserID(userID int) ([]models.Appointment, error) {
+func (db *SQLiteDatabase) GetAppointmentsByCustomerID(userID int) ([]models.Appointment, error) {
     query := `
-        SELECT id, customer_name, time, duration, notes, recurrence_rule, status, resource, user_id
+        SELECT id, customer_name, time, duration, notes, recurrence_rule, status, resource, customer_id, provider_id
         FROM appointments
-        WHERE user_id = ?
+        WHERE customer_id = ?
         ORDER BY time ASC
     `
     rows, err := db.Connection.Query(query, userID)
@@ -161,7 +162,7 @@ func (db *SQLiteDatabase) GetAppointmentsByUserID(userID int) ([]models.Appointm
     for rows.Next() {
         var ap models.Appointment
         var apTime string
-        if err := rows.Scan(&ap.ID, &ap.CustomerName, &apTime, &ap.Duration, &ap.Notes, &ap.RecurrenceRule, &ap.Status, &ap.Resource, &ap.UserID); err != nil {
+        if err := rows.Scan(&ap.ID, &ap.CustomerName, &apTime, &ap.Duration, &ap.Notes, &ap.RecurrenceRule, &ap.Status, &ap.Resource, &ap.CustomerID, &ap.ProviderID); err != nil {
             return nil, err
         }
         ap.Time, _ = time.Parse(time.RFC3339, apTime)
@@ -171,7 +172,7 @@ func (db *SQLiteDatabase) GetAppointmentsByUserID(userID int) ([]models.Appointm
 }
 
 func (db *SQLiteDatabase) GetAppointmentsByCustomerAndTimeRange(customerName string, startTime, endTime time.Time) ([]models.Appointment, error) {
-	query := `SELECT id, customer_name, time, duration, notes, recurrence_rule, status, resource FROM appointments WHERE customer_name = ? AND time < ? AND datetime(time, '+' || duration || ' minutes') > ?`
+	query := `SELECT id, customer_name, time, duration, notes, recurrence_rule, status, resource, customer_id, provider_id FROM appointments WHERE customer_name = ? AND time < ? AND datetime(time, '+' || duration || ' minutes') > ?`
 
 	rows, err := db.Connection.Query(query, customerName, endTime, startTime)
 	if err != nil {
@@ -182,7 +183,7 @@ func (db *SQLiteDatabase) GetAppointmentsByCustomerAndTimeRange(customerName str
 	var appointments []models.Appointment
 	for rows.Next() {
 		var appointment models.Appointment
-		if err := rows.Scan(&appointment.ID, &appointment.CustomerName, &appointment.Time, &appointment.Duration, &appointment.Notes, &appointment.RecurrenceRule, &appointment.Status, &appointment.Resource); err != nil {
+		if err := rows.Scan(&appointment.ID, &appointment.CustomerName, &appointment.Time, &appointment.Duration, &appointment.Notes, &appointment.RecurrenceRule, &appointment.Status, &appointment.Resource, &appointment.CustomerID, &appointment.ProviderID); err != nil {
 			return nil, fmt.Errorf("failed to scan appointment row: %v", err)
 		}
 		appointments = append(appointments, appointment)
@@ -192,7 +193,7 @@ func (db *SQLiteDatabase) GetAppointmentsByCustomerAndTimeRange(customerName str
 }
 
 func (db *SQLiteDatabase) GetRecurringAppointments(limit int) ([]models.Appointment, error) {
-	query := "SELECT id, customer_name, time, duration, notes, recurrence_rule, status, resource FROM appointments WHERE recurrence_rule IS NOT NULL"
+	query := "SELECT id, customer_name, time, duration, notes, recurrence_rule, status, resource, customer_id, provider_id FROM appointments WHERE recurrence_rule IS NOT NULL"
 	rows, err := db.Connection.Query(query)
 	if err != nil {
 		return nil, err
@@ -202,7 +203,7 @@ func (db *SQLiteDatabase) GetRecurringAppointments(limit int) ([]models.Appointm
 	var recurringAppointments []models.Appointment
 	for rows.Next() {
 		var appointment models.Appointment
-		if err := rows.Scan(&appointment.ID, &appointment.CustomerName, &appointment.Time, &appointment.Duration, &appointment.Notes, &appointment.RecurrenceRule, &appointment.Status, &appointment.Resource); err != nil {
+		if err := rows.Scan(&appointment.ID, &appointment.CustomerName, &appointment.Time, &appointment.Duration, &appointment.Notes, &appointment.RecurrenceRule, &appointment.Status, &appointment.Resource, &appointment.CustomerID, &appointment.ProviderID); err != nil {
 			return nil, err
 		}
 		recurringAppointments = append(recurringAppointments, appointment)
@@ -212,8 +213,8 @@ func (db *SQLiteDatabase) GetRecurringAppointments(limit int) ([]models.Appointm
 
 func (db *SQLiteDatabase) UpdateAppointment(appointment models.Appointment) error {
 	_, err := db.Connection.Exec(
-		"UPDATE appointments SET customer_name = ?, time = ?, duration = ?, notes = ?, recurrence_rule = ?, status = ?, resource = ?, user_id = ? WHERE id = ?",
-		appointment.CustomerName, appointment.Time.Format(time.RFC3339), appointment.Duration, appointment.Notes, appointment.RecurrenceRule, appointment.Status, appointment.Resource, appointment.UserID, appointment.ID,
+		"UPDATE appointments SET customer_name = ?, time = ?, duration = ?, notes = ?, recurrence_rule = ?, status = ?, resource = ?, customer_id = ?, provider_id = ? WHERE id = ?",
+		appointment.CustomerName, appointment.Time.Format(time.RFC3339), appointment.Duration, appointment.Notes, appointment.RecurrenceRule, appointment.Status, appointment.Resource, appointment.CustomerID, appointment.ProviderID, appointment.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update appointment: %v", err)

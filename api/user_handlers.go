@@ -3,11 +3,13 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/ozoli99/Kaida/models"
 )
 
 func (server *Server) handleUserRegister(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -19,17 +21,21 @@ func (server *Server) handleUserRegister(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeJSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	user, err := server.UserService.RegisterUser(req.Username, req.Email, req.Password, req.Role)
+	user, err := server.UserService.RegisterUser(
+		req.Username, 
+		req.Email, 
+		req.Password, 
+		req.Role,
+	)
     if err != nil {
-        http.Error(w, err.Error(), http.StatusBadRequest)
+        writeJSONError(w, err.Error(), http.StatusBadRequest)
         return
     }
 
-    // Return the created user without the password
     user.Password = ""
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(user)
@@ -37,7 +43,7 @@ func (server *Server) handleUserRegister(w http.ResponseWriter, r *http.Request)
 
 func (server *Server) handleUserLogin(w http.ResponseWriter, r *http.Request) {
     if r.Method != http.MethodPost {
-        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+        writeJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
         return
     }
 
@@ -46,19 +52,32 @@ func (server *Server) handleUserLogin(w http.ResponseWriter, r *http.Request) {
         Password string `json:"password"`
     }
     if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-        http.Error(w, err.Error(), http.StatusBadRequest)
+        writeJSONError(w, err.Error(), http.StatusBadRequest)
         return
     }
 
     user, err := server.UserService.AuthenticateUser(req.Email, req.Password)
     if err != nil {
-        http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+        writeJSONError(w, "Invalid credentials", http.StatusUnauthorized)
         return
     }
 
-    // This is where you'd set a session cookie or return a JWT
-    // For now, just return the user minus password
     user.Password = ""
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(user)
+}
+
+func (server *Server) getCurrentUser(r *http.Request) (*models.User, error) {
+    user := &models.User{
+        ID:    2,
+        Role:  "customer",
+        Email: "test@example.com",
+    }
+    return user, nil
+}
+
+func writeJSONError(w http.ResponseWriter, message string, status int) {
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(status)
+    json.NewEncoder(w).Encode(map[string]string{"error": message})
 }
